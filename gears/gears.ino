@@ -72,6 +72,7 @@ byte calculate_gear(float ratio) {
 byte update_gear_table(float new_ratio) {
   /*Given a ratio that could not be matched to a currently known one, put it in the list.
   */
+  new_ratio *= 1000;
   byte new_gear = 255;
   if (num_ratios == 0) {
     // it's the first one
