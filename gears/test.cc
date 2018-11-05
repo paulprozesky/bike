@@ -3,19 +3,10 @@
 
 #define byte unsigned char
 
-const short UPDATE_RATE = 500;  // milliseconds
 const short RATIO_TOLERANCE = 200;  // absolute - unitless
 
-unsigned int ctr_tacho = 0;
-unsigned int ctr_speedo = 0;
-unsigned int check_time = 0;
 unsigned short ratios[6] = {65535, 65535, 65535, 65535, 65535, 65535};  // store the ratios multiplied by 1000 so we don't need floats
 byte num_ratios = 0;
-byte current_gear = 0;
-char debug_string[100];
-
-unsigned short EXPECTED_RATIOS[6] = {500, 1500, 2500, 3500, 4500, 5500};
-
 byte MAX_GEARS = 6;
 
 void save_to_eeprom() {
@@ -166,16 +157,18 @@ void test4(void) {
   update_gear_table(3.5);
   update_gear_table(4.5);
   update_gear_table(5.5);
-  update_gear_table(7.5);
+  update_gear_table(7.5);  // should be ignored
+  update_gear_table(0.1);  // this one too
   unsigned short expected[] = {500, 1500, 2500, 3500, 4500, 5500};
   compare_to_expected(expected, 6);
 }
 
 int main(void) {
-  printf("Starting...\n");
+  printf("Starting tests...\n\n");
   byte new_gear = 255;
   test1();
   test2();
   test3();
   test4();
+  printf("\ndone.\n");
 }
