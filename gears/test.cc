@@ -5,9 +5,10 @@
 
 const short RATIO_TOLERANCE = 200;  // absolute - unitless
 
-unsigned short ratios[6] = {65535, 65535, 65535, 65535, 65535, 65535};  // store the ratios multiplied by 1000 so we don't need floats
+byte MAX_GEARS = 9;
+unsigned short ratios[9] = {65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535};  // store the ratios multiplied by 1000 so we don't need floats
 byte num_ratios = 0;
-byte MAX_GEARS = 6;
+
 
 void save_to_eeprom() {
   // fake
@@ -43,7 +44,7 @@ byte search_and_update(unsigned short new_ratio) {
   }
   // lower chunk has already been copied above
   // move the upper chunk up to make room for the new value
-  for(byte ctr = lower_match + 1; ctr < 6; ctr++) {
+  for(byte ctr = lower_match + 1; ctr < MAX_GEARS; ctr++) {
     ratios[ctr] = old_ratios[ctr - 1];
   }
   // new value
@@ -82,7 +83,7 @@ byte update_gear_table(float ratio) {
 }
 
 void print_ratios() {
-  for(int ctr=0; ctr < 6; ctr++) {
+  for(int ctr=0; ctr < 9; ctr++) {
     printf("%i: %i\n", ctr, ratios[ctr]);
   }
 }
@@ -101,7 +102,7 @@ void compare_to_expected(unsigned short *expected_ratios, byte num_expected) {
 }
 
 void reset_ratios() {
-  for (byte ctr = 0; ctr < 6; ctr++) ratios[ctr] = 65535;
+  for (byte ctr = 0; ctr < MAX_GEARS; ctr++) ratios[ctr] = 65535;
   num_ratios = 0;
 }
 
@@ -157,10 +158,10 @@ void test4(void) {
   update_gear_table(3.5);
   update_gear_table(4.5);
   update_gear_table(5.5);
-  update_gear_table(7.5);  // should be ignored
-  update_gear_table(0.1);  // this one too
-  unsigned short expected[] = {500, 1500, 2500, 3500, 4500, 5500};
-  compare_to_expected(expected, 6);
+  update_gear_table(7.5);
+  update_gear_table(0.1);
+  unsigned short expected[] = {100, 500, 1500, 2500, 3500, 4500, 5500, 7500};
+  compare_to_expected(expected, 8);
 }
 
 int main(void) {
