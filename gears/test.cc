@@ -1,12 +1,16 @@
 #include <stdio.h>
 #include <string.h>
 
+#define TEST
+
 #define byte unsigned char
 
 const short RATIO_TOLERANCE = 200;  // absolute - unitless
 
 byte MAX_GEARS = 9;
-unsigned short ratios[9] = {65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535};  // store the ratios multiplied by 1000 so we don't need floats
+
+// store the ratios multiplied by 1000 so we don't need floats
+unsigned short ratios[9] = {65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535, 65535};
 byte num_ratios = 0;
 
 
@@ -14,47 +18,67 @@ void save_to_eeprom() {
   // fake
 }
 
-byte search_and_update(unsigned short new_ratio) {
-  /*It wasn't the first one and it wasn't bigger than the biggest, so where is it?
+void print_ratios() {
+  /* Print the ratios in RAM
+  */
+  printf("ratios[");
+  for(int ctr=0; ctr < 9; ctr++) {
+    printf("%i, ", ratios[ctr]);
+  }
+  printf("]\n");
+}
+
+byte search_array(unsigned short new_ratio) {
+  /* It wasn't the first one and it wasn't bigger than the biggest, so where is it?
   */
   // find the first time it's smaller than a ratio's upper limit
-  unsigned short old_ratios[MAX_GEARS];
-  memcpy(old_ratios, ratios, MAX_GEARS*sizeof(ratios[0]));
   byte lower_match = 255;
+  // loop through the ratios we know about and see where this new one fits in
   for (byte ctr = 0; ctr < num_ratios; ctr++) {
     short this_ratio = ratios[ctr];
     unsigned short this_ratio_upper_limit = this_ratio + RATIO_TOLERANCE;
     unsigned short this_ratio_lower_limit = this_ratio - RATIO_TOLERANCE;
+    // find it a new home
     if ((new_ratio > this_ratio_lower_limit) && (new_ratio <= this_ratio_upper_limit)) {
-      // it is this one, do nothing
-      return 255;
+      return 255;  // it matches this one, do nothing
     }
     else if (new_ratio < this_ratio_lower_limit) {
-        lower_match = ctr;
-        break;
+      lower_match = ctr;  // it's smaller than this one
+      break;
     }
     else if (new_ratio > this_ratio_upper_limit) {
-      // carry on looking
+      // it's bigger than this one, so carry on looking
     }
   }
-  if (lower_match == 255) {
+  if (255 == lower_match) {
     // this should never happen
     printf("%s\n", "But somehow it did?");
     return 255;
   }
-  // lower chunk has already been copied above
-  // move the upper chunk up to make room for the new value
-  for(byte ctr = lower_match + 1; ctr < MAX_GEARS; ctr++) {
-    ratios[ctr] = old_ratios[ctr - 1];
-  }
-  // new value
-  ratios[lower_match] = new_ratio;
-  num_ratios++;
   return lower_match;
 }
 
+void insert_new_ratio(byte new_gear, unsigned short new_ratio) {
+  /* Given a new ratio with a new position, but it in the array in RAM
+  */
+  //printf("\tnew_ratio(%i) new_gear(%i)\n", new_ratio, new_gear);
+  //print_ratios();
+  unsigned short old_ratios[MAX_GEARS];
+  memcpy(old_ratios, ratios, MAX_GEARS*sizeof(ratios[0]));
+  // lower chunk has already been copied above
+  // move the upper chunk up to make room for the new value
+  for(byte ctr = new_gear + 1; ctr < MAX_GEARS; ctr++) {
+    ratios[ctr] = old_ratios[ctr - 1];
+  }
+  ratios[new_gear] = new_ratio;
+  num_ratios++;
+  save_to_eeprom();
+  //print_ratios();
+  //printf("\n");
+}
+
 byte update_gear_table(float ratio) {
-  /*Given a ratio that could not be matched to a currently known one, put it in the list.
+  /* Given a new ratio, find out where it should be in the list.
   */
   // do we have all of them already?
   if (num_ratios >= MAX_GEARS) {
@@ -63,32 +87,25 @@ byte update_gear_table(float ratio) {
   // otherwise find out where to put this one
   unsigned short new_ratio = ratio * 1000;
   byte new_gear = 255;
-  if (num_ratios == 0) {
-    // it's the first one
-    ratios[0] = new_ratio;
-    new_gear = 0;
-    num_ratios = 1;
-    save_to_eeprom();
-    return 0;
+  if (0 == num_ratios) {
+    new_gear = 0;  // it's the first one
   }
-  // is it bigger than the currently known biggest one?
-  if (new_ratio > (ratios[num_ratios - 1] + RATIO_TOLERANCE)) {
-    ratios[num_ratios] = new_ratio;
-    new_gear = num_ratios;
-    num_ratios++;
+  else if (new_ratio > (ratios[num_ratios - 1] + RATIO_TOLERANCE)) {
+    new_gear = num_ratios;  // it's bigger than the current biggest one
   }
-  else new_gear = search_and_update(new_ratio);
-  if (new_gear < 255) save_to_eeprom();
+  else {
+    new_gear = search_array(new_ratio);  // it's somewhere else
+  }
+  // update the ratio table as required
+  if (new_gear < 255) {
+    insert_new_ratio(new_gear, new_ratio);
+  }
   return new_gear;
 }
 
-void print_ratios() {
-  for(int ctr=0; ctr < 9; ctr++) {
-    printf("%i: %i\n", ctr, ratios[ctr]);
-  }
-}
-
 void compare_to_expected(unsigned short *expected_ratios, byte num_expected) {
+  /* Compare the ratios in RAM to a list of expected ratios.
+  */
   byte errors = 0;
   for (byte ctr = 0; ctr < num_expected; ctr++) {
     if (ratios[ctr] != expected_ratios[ctr]) {
@@ -102,6 +119,8 @@ void compare_to_expected(unsigned short *expected_ratios, byte num_expected) {
 }
 
 void reset_ratios() {
+  /* Reset all the ratios currently stored in RAM.
+  */
   for (byte ctr = 0; ctr < MAX_GEARS; ctr++) ratios[ctr] = 65535;
   num_ratios = 0;
 }
@@ -166,7 +185,6 @@ void test4(void) {
 
 int main(void) {
   printf("Starting tests...\n\n");
-  byte new_gear = 255;
   test1();
   test2();
   test3();

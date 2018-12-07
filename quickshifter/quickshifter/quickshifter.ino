@@ -10,6 +10,8 @@
 9. neutral light? need to display N as well. reliably. only go there after a second (half a second?) so we don't go N between shifts.
 10. use a timer to stop the shift cut?
 11. RC filter on the sensor voltage, then analogue interrupt on arduino? versus sampling and filtering in software
+12. RPM signal should be a square wave - it's from a toothed wheel on the crank
+13. Speed signal is 0-5V?
 */
 
 #include <EEPROM.h>
