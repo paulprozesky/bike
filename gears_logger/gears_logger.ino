@@ -142,7 +142,7 @@ unsigned short spi_read_status_reg_write(void) {
   return result_lsb + (result_msb << 8);
 }
 
-void update_status_led(unsigned long time_now){
+void update_status_led(unsigned long time_now) {
   /* Update the status LED based on what the board is doing
   */
   if (time_now >= led_time) {
@@ -155,10 +155,10 @@ void update_status_led(unsigned long time_now){
   }
 }
 
-void update_data(unsigned long time_now){
+void update_data(unsigned long time_now) {
   /* Update the data if it is time to do so
   */
-  if (time_now >= update_data_time){
+  if (time_now >= update_data_time) {
     update_data_time = time_now + UPDATE_RATE;
     update_counters();
     update_neutral();
@@ -166,7 +166,7 @@ void update_data(unsigned long time_now){
   }
 }
 
-void dump_data_to_serial(void){
+void dump_data_to_serial(void) {
   /* Dump all the data in the EEPROM to the serial port
   */
   if(Serial.available() > 4) {
@@ -193,7 +193,7 @@ void dump_data_to_serial(void){
   }
 }
 
-void save_to_flash(void){
+void save_to_flash(void) {
   /* Save the latest values to the flash chip
   */
   if (1 == logging_enabled) {
@@ -209,13 +209,13 @@ void save_to_flash(void){
   #endif
 }
 
-void update_neutral(void){
+void update_neutral(void) {
   /* Read the ADC value for the neutral pin 
   */
   adc_neutral = analogRead(ADC_NEUTRAL_PIN);
 }
 
-int update_counters(void){
+int update_counters(void) {
   /* Update the counters and write them to EEPROM
   */
   last_tacho = ctr_tacho;
