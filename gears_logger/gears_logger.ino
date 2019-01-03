@@ -37,6 +37,8 @@ unsigned long debounce_time = 0;
 unsigned long button_falling_edge_time = 0;
 #define BUTTON_PRESSED (0 == button_state)
 #define BUTTON_RELEASED (1 == button_state)
+// spi things
+unsigned long spi_write_address = 0;
 
 char debug_string[100];
 
@@ -61,10 +63,10 @@ void loop() {
   */
   unsigned long now = millis();
   check_push_button(now);
-  erase_flash();
+  spi_erase_flash();
   update_data(now);
   update_status_led(now);
-  dump_data_to_serial();
+  check_serial_commands();
 }
 
 void check_push_button(unsigned long time_now) {
@@ -93,55 +95,6 @@ void check_push_button(unsigned long time_now) {
   }
 }
 
-void erase_flash(void) {
-  /* Erase the flash chip.
-  */
-  if (!erase_flag) return;
-  erase_flag = 0;
-  Serial.println("erasing entire flash chip...");
-  digitalWrite(SPI_CS, LOW);
-  unsigned int result = SPI.transfer(0xc7);
-  unsigned int ctr = 0;
-  while(1 == spi_read_status_reg1() & 0x01) {
-    Serial.print("busy_");
-    Serial.println(ctr);
-    ctr++;
-  }
-  digitalWrite(SPI_CS, HIGH);
-  Serial.println("done erasing.");
-}
-
-byte spi_read_status_reg1(void) {
-  /* Read status register 1 from the SPI flash chip
-  */
-  digitalWrite(SPI_CS, LOW);
-  SPI.transfer(0x05);
-  byte result = SPI.transfer(0x00);
-  digitalWrite(SPI_CS, HIGH);
-  return result;
-}
-
-byte spi_read_status_reg2(void) {
-  /* Read status register 1 from the SPI flash chip
-  */
-  digitalWrite(SPI_CS, LOW);
-  SPI.transfer(0x35);
-  byte result = SPI.transfer(0x00);
-  digitalWrite(SPI_CS, HIGH);
-  return result;
-}
-
-unsigned short spi_read_status_reg_write(void) {
-  /* Read the write status register from the SPI flash chip
-  */
-  digitalWrite(SPI_CS, LOW);
-  SPI.transfer(0x01);
-  byte result_lsb = SPI.transfer(0x00);
-  byte result_msb = SPI.transfer(0x00);
-  digitalWrite(SPI_CS, HIGH);
-  return result_lsb + (result_msb << 8);
-}
-
 void update_status_led(unsigned long time_now) {
   /* Update the status LED based on what the board is doing
   */
@@ -166,31 +119,31 @@ void update_data(unsigned long time_now) {
   }
 }
 
-void dump_data_to_serial(void) {
+void check_serial_commands(void) {
   /* Dump all the data in the EEPROM to the serial port
   */
   if(Serial.available() > 4) {
     Serial.setTimeout(UPDATE_RATE);
     String str = Serial.readStringUntil('\n');
-    if(str.substring(0) == "dump") {
-      Serial.println("Printing all flash data to serial.");
+    if(str.substring(0) == "dump")
+      dump_data_to_serial();
+    else if(str.substring(0) == "query")
+      spi_chip_query();
+    else if (str.substring(0) == "erase_flash") {
+      erase_flag = 1;
+      spi_erase_flash();
     }
-    else if(str.substring(0) == "query") {
-      digitalWrite(SPI_CS, LOW);
-      sprintf(debug_string, "byte_read(0x%02x)", SPI.transfer(0x00));
-      Serial.println(debug_string);
-      // read the manufacturer ID of the flash chip
-      unsigned int result0 = SPI.transfer(0x90);
-      unsigned int result1 = SPI.transfer(0x00);
-      unsigned int result2 = SPI.transfer(0x00);
-      unsigned int result3 = SPI.transfer(0x00);
-      unsigned int result4 = SPI.transfer(0x00);
-      unsigned int result5 = SPI.transfer(0x00);
-      sprintf(debug_string, "flash_info: 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x", result0, result1, result2, result3, result4, result5);
-      Serial.println(debug_string);
-      digitalWrite(SPI_CS, HIGH);
-    }
+    else if (str.substring(0) == "init_flash")
+      spi_init_flash();
+    else if (str.substring(0) == "test_flash")
+      spi_test_flash();
   }
+}
+
+void dump_data_to_serial(void) {
+  /* Dump all the data in the EEPROM to the serial port
+  */
+  Serial.println("Printing all flash data to serial.");
 }
 
 void save_to_flash(void) {
@@ -236,6 +189,8 @@ void isr_speedo() {
   ctr_speedo++;
 }
 
+/* push button *********************************************************************/
+
 byte read_button_with_debounce(unsigned long time_now) {
   /* Read the button with a software debounce
   */
@@ -256,5 +211,195 @@ byte read_button_with_debounce(unsigned long time_now) {
     #endif
   }
 }
+
+/* /push button *********************************************************************/
+
+/* SPI *********************************************************************/
+
+void spi_test_flash(void) {
+  /* Test reading, writing and navigating in flash
+  */
+  unsigned long func_enter = millis();
+  sprintf(debug_string, "test_flash_enter(%i)", func_enter);
+  Serial.println(debug_string);
+  spi_init_flash();
+  spi_write_byte(0xde);
+  spi_write_byte(0xad);
+  spi_write_byte(0xbe);
+  spi_write_byte(0xef);
+  byte data = 0;
+  for (int ctr=0; ctr<100; ctr++) {
+    data = spi_read_byte(ctr);
+    sprintf(debug_string, "0x%04x: 0x%02x", ctr, data);
+    Serial.println(debug_string);
+  }
+  unsigned long func_exit = millis();
+  sprintf(debug_string, "test_flash_exit(%i, %i)", func_exit, func_exit - func_enter);
+  Serial.println(debug_string);
+}
+
+void spi_init_flash(void) {
+  /* Set up the flash chip and find the next location to write
+  */
+  spi_write_address = spi_find_next_write_location();
+}
+
+unsigned long spi_find_next_write_location(void) {
+  /* Scan through the flash chip and find the next location to write 
+  */
+  unsigned long rv;
+  #ifdef DEBUG_LOGGING
+  Serial.print("spi_found_data_until: ");
+  Serial.println(rv);
+  #endif
+  return rv;
+}
+
+byte spi_read_byte(unsigned long address) {
+  /* Read a byte from the given address
+  */
+  digitalWrite(SPI_CS, LOW);
+  byte return0 = SPI.transfer(0x03);
+  byte return1 = SPI.transfer((address >> 16) & 0xff);
+  byte return2 = SPI.transfer((address >> 8) & 0xff);
+  byte return3 = SPI.transfer((address >> 0) & 0xff);
+  byte return4 = SPI.transfer(0x00); 
+  digitalWrite(SPI_CS, HIGH);
+  return return4;
+}
+
+void spi_write_byte(byte data) {
+  /* Write a byte to the current address
+  */
+  digitalWrite(SPI_CS, LOW);
+  SPI.transfer(0x02);
+  SPI.transfer((spi_write_address >> 16) & 0xff);
+  SPI.transfer((spi_write_address >> 8) & 0xff);
+  SPI.transfer((spi_write_address >> 0) & 0xff);
+  SPI.transfer(data); 
+  digitalWrite(SPI_CS, HIGH);
+  spi_write_address++;
+}
+
+void spi_write_enable(void) {
+  /* Set the write-enable latch
+  */
+  digitalWrite(SPI_CS, LOW);
+  SPI.transfer(0x06);
+  digitalWrite(SPI_CS, HIGH);
+}
+
+void spi_chip_query(void) {
+  /* Query the flash chip and print information about it to the serial line
+  */
+  byte flash_info[] = {0,0,0,0,0,0};
+  spi_read_flash_info(flash_info);
+  sprintf(debug_string, "flash_info: 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x", 
+    flash_info[0], flash_info[1], flash_info[2], flash_info[3], flash_info[4], flash_info[5]);
+  Serial.println(debug_string);
+}
+
+void spi_read_flash_info(byte *return_array) {
+  /* Read status register 1 from the SPI flash chip
+  */
+  digitalWrite(SPI_CS, LOW);
+  return_array[0] = SPI.transfer(0x90);
+  return_array[1] = SPI.transfer(0x00);
+  return_array[2] = SPI.transfer(0x00);
+  return_array[3] = SPI.transfer(0x00);
+  return_array[4] = SPI.transfer(0x00);
+  return_array[5] = SPI.transfer(0x00);
+  digitalWrite(SPI_CS, HIGH);
+}
+
+void spi_erase_flash(void) {
+  /* Erase the flash chip
+  */
+  if (!erase_flag) 
+    return;
+  erase_flag = 0;
+  Serial.println("erasing entire flash chip...");
+  spi_write_enable();
+  digitalWrite(SPI_CS, LOW);
+  SPI.transfer(0xc7);
+  digitalWrite(SPI_CS, HIGH);
+  unsigned int ctr = 0;
+  while(spi_busy()) {
+    Serial.print("busy_");
+    Serial.println(ctr);
+    ctr++;
+  }
+  Serial.println("done erasing.");
+}
+
+void spi_erase_sector(unsigned int sector) {
+  /* Erase the given 4k sector
+  */
+  Serial.print("erasing flash sector ");
+  Serial.print(sector);
+  Serial.println("...");
+  unsigned long sector_address = sector << 12;
+  spi_write_enable();
+  digitalWrite(SPI_CS, LOW);
+  SPI.transfer(0x20);
+  SPI.transfer((sector_address >> 16) & 0xff);
+  SPI.transfer((sector_address >> 8) & 0xff);
+  SPI.transfer((sector_address >> 0) & 0xff);
+  digitalWrite(SPI_CS, HIGH);
+  unsigned int ctr = 0;
+  while(spi_busy()) {
+    Serial.print("busy_");
+    Serial.println(ctr);
+    ctr++;
+  }
+  Serial.println("done erasing sector.");
+}
+
+byte spi_read_status_reg1(void) {
+  /* Read status register 1 from the SPI flash chip
+  */
+  digitalWrite(SPI_CS, LOW);
+  SPI.transfer(0x05);
+  byte result = SPI.transfer(0x00);
+  digitalWrite(SPI_CS, HIGH);
+  return result;
+}
+
+byte spi_read_status_reg2(void) {
+  /* Read status register 1 from the SPI flash chip
+  */
+  digitalWrite(SPI_CS, LOW);
+  SPI.transfer(0x35);
+  byte result = SPI.transfer(0x00);
+  digitalWrite(SPI_CS, HIGH);
+  return result;
+}
+
+unsigned short spi_read_status_reg_write(void) {
+  /* Read the write status register from the SPI flash chip
+  */
+//  spi_write_enable();
+//  digitalWrite(SPI_CS, LOW); 
+//  SPI.transfer(0x01);
+//  byte result_lsb = SPI.transfer(0x00);
+//  byte result_msb = SPI.transfer(0x00);
+//  digitalWrite(SPI_CS, HIGH);
+//  return result_lsb + (result_msb << 8);
+  return 0;
+}
+
+bool spi_busy(void) {
+  /* Is the SPI chip busy?
+  */
+  return spi_read_status_reg1() & 0x01;
+}
+
+void spi_wait_busy(void) {
+  /* Spin while the SPI busy line is high
+  */
+  while(spi_busy());
+}
+
+/* \SPI **********************************************************************/
 
 // end
