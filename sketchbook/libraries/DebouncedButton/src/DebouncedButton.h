@@ -13,13 +13,15 @@ class DebouncedButton {
     bool read(unsigned long time_now);
     bool button_state(void);
     bool is_pressed(void);
+    unsigned long get_press_time(void);
     char *debug_string;
   private:
     byte button_pin;
     byte debounce_ms;
-    volatile bool last_button_reading = 1;
-    bool last_read_state = 1;
-    unsigned long debounce_time = 0;
+    volatile bool last_button_reading;
+    bool last_read_state;
+    unsigned long debounce_time;
+    unsigned long press_time;
 };
 
 #endif

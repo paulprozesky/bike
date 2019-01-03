@@ -32,8 +32,6 @@ unsigned long update_data_time = 0;
 unsigned long led_time = 0;
 unsigned int adc_neutral = 0;
 
-unsigned long button_press_time = 0;
-
 WinbondFlash flash(SPI_CS, 64);
 DebouncedButton button(BUTTON_PIN, DEBOUNCE_TIME);
 
@@ -68,21 +66,17 @@ void loop() {
 void check_push_button(unsigned long time_now) {
   /* Check the button to see it it's transitioned from high to low
   */
-  byte last_button_state = button.button_state();
   button.read(time_now);
-  if (1 == last_button_state) {  // button was not pressed
-    button_press_time = button.is_pressed() ? time_now : 0;
-  }
-  if ((0 != button_press_time) && button.is_pressed()) {
+  if ((0 != button.get_press_time()) && button.is_pressed()) {
     // the button is held down and we're counting
-    if (time_now > button_press_time + LONG_PRESS) {
+    if (time_now > button.get_press_time() + LONG_PRESS) {
       erase_flag = 1;
       logging_enabled = 0;
       #ifdef DEBUG_LOGGING
       Serial.println("long_press");
       #endif
     }
-    else if (time_now > button_press_time + SHORT_PRESS) {
+    else if (time_now > button.get_press_time() + SHORT_PRESS) {
       logging_enabled = 1;
       #ifdef DEBUG_LOGGING
       Serial.println("short_press");
