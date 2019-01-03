@@ -40,7 +40,7 @@ unsigned long button_falling_edge_time = 0;
 // spi things
 unsigned long spi_write_address = 0;
 
-char debug_string[100];
+char debug_string[200];
 
 void setup() {
   /* This is run once at startup
@@ -168,7 +168,7 @@ void update_neutral(void) {
   adc_neutral = analogRead(ADC_NEUTRAL_PIN);
 }
 
-int update_counters(void) {
+void update_counters(void) {
   /* Update the counters and write them to EEPROM
   */
   last_tacho = ctr_tacho;
@@ -247,7 +247,7 @@ void spi_init_flash(void) {
 unsigned long spi_find_next_write_location(void) {
   /* Scan through the flash chip and find the next location to write 
   */
-  unsigned long rv;
+  unsigned long rv = 0x77;
   #ifdef DEBUG_LOGGING
   Serial.print("spi_found_data_until: ");
   Serial.println(rv);
