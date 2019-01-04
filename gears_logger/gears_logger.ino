@@ -1,6 +1,7 @@
 #define DEBUG_LOGGING
 
 #include <WinbondFlash.h>
+#include <StubFlash.h>
 #include <DebouncedButton.h>
 
 // constants for this hardware flash logger
@@ -33,6 +34,7 @@ unsigned long led_time = 0;
 unsigned int adc_neutral = 0;
 
 WinbondFlash flash(SPI_CS, 64);
+StubFlash flash2;
 DebouncedButton button(BUTTON_PIN, DEBOUNCE_TIME);
 
 char debug_string[200];
