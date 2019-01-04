@@ -7,17 +7,6 @@
 #define CS_LOW digitalWrite(cs_pin, LOW)
 #define CS_HIGH digitalWrite(cs_pin, HIGH)
 
-WinbondFlash::WinbondFlash(byte chip_select, byte size_in_mb) {
-  cs_pin = chip_select;
-  size_in_mb = size_in_mb;
-  size_in_bytes = size_in_mb;
-  size_in_bytes <<= 20;
-  write_address = 0;
-  pinMode(cs_pin, OUTPUT);
-  SPI.begin();
-  CS_LOW;
-}
-
 void print_data_array_256(byte *data_array) {
   /* Print the contents of a data array that is 256 bytes long
   */
@@ -32,6 +21,17 @@ void print_data_array_256(byte *data_array) {
   }
 }
 
+WinbondFlash::WinbondFlash(byte chip_select, byte size_in_mb){
+  cs_pin = chip_select;
+  size_in_mb = size_in_mb;
+  size_in_bytes = size_in_mb;
+  size_in_bytes <<= 20;
+  write_address = 0;
+  pinMode(cs_pin, OUTPUT);
+  SPI.begin();
+  CS_LOW;
+}
+
 void WinbondFlash::test_flash(void) {
   /* Test reading, writing and navigating in flash
   */
@@ -39,28 +39,28 @@ void WinbondFlash::test_flash(void) {
   sprintf(debug_string, "test_flash_enter(%lu)", func_enter);
   Serial.println(debug_string);
   init();
-  
+
   // byte-wise writing
   write_byte(0xde);
   write_byte(0xad);
   write_byte(0xbe);
   write_byte(0xef);
-  
+
   // block writing
   byte data_array[256];
   for (unsigned int ctr = 0; ctr < 256; ctr++)
     data_array[ctr] = ctr;
   write_data(data_array, 256);
-  
+
   // byte-wise reading
   for (unsigned int ctr=0; ctr<256; ctr++)
     data_array[ctr] = read_byte(ctr);
   print_data_array_256(data_array);
-  
+
   // block reading
   read_data(3, data_array, 256);
   print_data_array_256(data_array);
-  
+
   unsigned long func_exit = millis();
   sprintf(debug_string, "test_flash_exit(%lu, %lu)", func_exit, func_exit - func_enter);
   Serial.println(debug_string);
@@ -73,7 +73,7 @@ void WinbondFlash::init(void) {
 }
 
 unsigned long WinbondFlash::find_next_write_address(void) {
-  /* Scan through the flash chip and find the next location to write 
+  /* Scan through the flash chip and find the next location to write
   */
   unsigned long next_write_address = 0;
   for (; next_write_address <= size_in_bytes; next_write_address += 256) {
@@ -107,7 +107,7 @@ void WinbondFlash::read_data(unsigned long address, byte *return_array, unsigned
   SPI.transfer((address >> 8) & 0xff);
   SPI.transfer((address >> 0) & 0xff);
   for (unsigned int ctr = 0; ctr < length_to_read; ctr++)
-    return_array[ctr] = SPI.transfer(0x00);    
+    return_array[ctr] = SPI.transfer(0x00);
   CS_HIGH;
 }
 
@@ -162,7 +162,7 @@ void WinbondFlash::chip_query(void) {
   */
   byte flash_info[] = {0, 0, 0, 0, 0, 0};
   read_flash_info(flash_info);
-  sprintf(debug_string, "flash_info: 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x", 
+  sprintf(debug_string, "flash_info: 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x",
     flash_info[0], flash_info[1], flash_info[2], flash_info[3], flash_info[4], flash_info[5]);
   Serial.println(debug_string);
 }
@@ -244,7 +244,7 @@ unsigned short WinbondFlash::read_status_reg_write(void) {
   /* Read the write status register from the SPI flash chip
   */
 //  write_enable();
-//  CS_LOW; 
+//  CS_LOW;
 //  SPI.transfer(0x01);
 //  byte result_lsb = SPI.transfer(0x00);
 //  byte result_msb = SPI.transfer(0x00);
