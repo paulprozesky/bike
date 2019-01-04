@@ -126,7 +126,7 @@ void check_serial_commands(void) {
     else if (str.substring(0) == "init_flash")
       flash.init();
     else if (str.substring(0) == "test_flash")
-      flash.test();
+      flash.test_flash();
   }
 }
 
