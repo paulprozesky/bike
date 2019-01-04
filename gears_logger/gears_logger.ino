@@ -119,10 +119,8 @@ void check_serial_commands(void) {
       dump_data_to_serial();
     else if(str.substring(0) == "query")
       flash_chip_query();
-    else if (str.substring(0) == "erase_flash") {
+    else if (str.substring(0) == "erase_flash")
       erase_flag = 1;
-      flash_erase();
-    }
     else if (str.substring(0) == "init_flash")
       flash.init();
     else if (str.substring(0) == "test_flash")

@@ -32,7 +32,7 @@ void print_data_array_256(byte *data_array) {
   }
 }
 
-void WinbondFlash::test(void) {
+void WinbondFlash::test_flash(void) {
   /* Test reading, writing and navigating in flash
   */
   unsigned long func_enter = millis();
