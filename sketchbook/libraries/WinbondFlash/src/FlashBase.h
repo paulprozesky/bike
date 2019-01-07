@@ -32,10 +32,10 @@ class FlashBase {
     void chip_query(void);
     void wait_busy(void);
 
+    unsigned long len_bytes;
     char* debug_string;
     
   protected:
-    unsigned long len_bytes;
     unsigned long write_address;
 };
 

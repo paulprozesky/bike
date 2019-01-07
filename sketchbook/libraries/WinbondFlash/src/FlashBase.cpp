@@ -6,13 +6,14 @@
 void print_data_array_256(byte *data_array) {
   /* Print the contents of a data array that is 256 bytes long
   */
-  for (byte row = 0; row < 16; row++) {
+  for (byte row = 0; row < 32; row++) {
     byte start_addr = row << 3;
     Serial.print(start_addr);
-    Serial.print(": ");
-    for (byte col = 0; col < 8; col++)
+    Serial.print(":_");
+    for (byte col = 0; col < 8; col++) {
       Serial.print(data_array[start_addr + col]);
-      Serial.print(" ");
+      Serial.print("_");
+    }
     Serial.println("");
   }
 }
@@ -35,22 +36,30 @@ void FlashBase::test_flash(void) {
   write_byte(0xad);
   write_byte(0xbe);
   write_byte(0xef);
+  
+  sprintf(debug_string, "write_address_now(%lu)", write_address);
+  Serial.println(debug_string);
 
   // block writing
   byte data_array[256];
   for (unsigned int ctr = 0; ctr < 256; ctr++)
     data_array[ctr] = ctr;
   write_data(data_array, 256);
+  
+  sprintf(debug_string, "write_address_now(%lu)", write_address);
+  Serial.println(debug_string);
 
   // byte-wise reading
+  Serial.println("byte-wise reading ----");
   for (unsigned int ctr=0; ctr<256; ctr++)
     data_array[ctr] = read_byte(ctr);
   print_data_array_256(data_array);
 
   // block reading
+  Serial.println("block reading ----");
   read_data(3, data_array, 256);
   print_data_array_256(data_array);
-
+  
   unsigned long func_exit = millis();
   sprintf(debug_string, "test_flash_exit(%lu, %lu)", func_exit, func_exit - func_enter);
   Serial.println(debug_string);

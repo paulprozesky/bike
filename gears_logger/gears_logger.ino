@@ -8,7 +8,8 @@
 const byte TACH_INTERRUPT_PIN = 2;
 const byte SPEEDO_INTERRUPT_PIN = 3;
 const int ADC_NEUTRAL_PIN = A0;
-const short UPDATE_RATE = 100;  // milliseconds - 10 Hz
+//const short UPDATE_RATE = 100;  // milliseconds - 10 Hz
+const int UPDATE_RATE = 2000;
 const short LED_RATE_LOGGING = UPDATE_RATE;
 const short LED_RATE_ALIVE = 500;
 const short LED_RATE_ERASING = 50;
@@ -21,6 +22,9 @@ const byte SPI_CS = 10;
 const byte DEBOUNCE_TIME = 20;
 const short SHORT_PRESS = 1000;
 const short LONG_PRESS = 5000;
+const byte RECORD_BYTES = 10;
+const byte FILE_HEADER_MAGIC_BYTES[] = {0xbe, 0xeb, 0xee, 0x1a, 0x2b, 0x3c, 0xee, 0x77};
+const byte FILE_FORMAT_VERSION = 1;
 
 // globals - cos arduinos seem to work like this
 volatile byte logging_enabled = 0;
@@ -33,11 +37,34 @@ unsigned long update_data_time = 0;
 unsigned long led_time = 0;
 unsigned int adc_neutral = 0;
 
-WinbondFlash flash(SPI_CS, 64);
-StubFlash flash2;
+//WinbondFlash flash(SPI_CS, 64);
+StubFlash flash;
+unsigned long flash_counter = 0;
+
 DebouncedButton button(BUTTON_PIN, DEBOUNCE_TIME);
 
 char debug_string[200];
+
+struct DataRecord {
+  unsigned long ctr_record;
+  unsigned int ctr_tacho;
+  unsigned int ctr_speedo;
+  unsigned int adc_neutral;
+  byte check_byte;
+};
+
+struct FileHeader {  // 32 bytes total
+  // FILE_HEADER_MAGIC_BYTES - 8 bytes
+  byte record_version;
+  byte record_len;
+  byte future_use[21];
+  byte check_byte;
+};
+
+class Foo {
+  public:
+    Foo();
+};
 
 void setup() {
   /* This is run once at startup
@@ -51,6 +78,38 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(SPEEDO_INTERRUPT_PIN), isr_speedo, RISING);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   pinMode(LED_PIN, OUTPUT);
+  
+  flash.init();
+  flash_update_counter();  // find and increase the reading counter
+
+  sprintf(debug_string, "header_len(%u) record_len(%u) magic_len(%u)", sizeof(FileHeader), sizeof(DataRecord), sizeof(FILE_HEADER_MAGIC_BYTES));
+  Serial.println(debug_string);
+
+  write_file_header();
+
+  FileHeader header;
+  bool res = read_file_header(0, &header);
+  sprintf(debug_string, "header: ok(%1u) ver(%u) reclen(%u) x(0x%02x)", res, header.record_version, header.record_len, header.check_byte);
+  Serial.println(debug_string);
+  
+//  DataRecord record_one;
+//  record_one.ctr_record = 11;
+//  record_one.ctr_tacho = 22;
+//  record_one.ctr_speedo = 33;
+//  record_one.adc_neutral = 44;
+//
+//  write_record(&record_one);
+//
+//  byte some_data[256];
+//  flash.read_data(0, some_data, 256);
+//  print_data_array_256(some_data);
+//
+//  DataRecord record_from_flash;
+//
+//  bool res = read_record(0, &record_from_flash);
+//  print_record(&record_from_flash);
+//  Serial.println(res);
+  
   interrupts();
 }
 
@@ -177,14 +236,28 @@ void save_to_flash(void) {
   if (1 == logging_enabled) {
     #ifdef DEBUG_LOGGING
     Serial.println("logging_to_flash");
+    byte data_to_write[] = {
+      (byte)((flash_counter >> 24) & 0xff),
+      (byte)((flash_counter >> 16) & 0xff),
+      (byte)((flash_counter >> 8) & 0xff),
+      (byte)((flash_counter >> 0) & 0xff),
+      (byte)((last_tacho >> 8) & 0xff),
+      (byte)((last_tacho >> 0) & 0xff),
+      (byte)((last_speedo >> 8) & 0xff),
+      (byte)((last_speedo >> 0) & 0xff),
+      (byte)((adc_neutral >> 8) & 0xff),
+      (byte)((adc_neutral >> 0) & 0xff)
+    };
+    flash_counter++;
+    flash.write_data(data_to_write, RECORD_BYTES);
     #endif
   }
-  #ifdef DEBUG_LOGGING
-  else {
-    sprintf(debug_string, "not_logging_to_flash: tacho(%10u) speed(%10u) adc_neutral(%4u)", last_tacho, last_speedo, adc_neutral);
-    Serial.println(debug_string);
-  }
-  #endif
+//  #ifdef DEBUG_LOGGING
+//  else {
+//    sprintf(debug_string, "not_logging_to_flash: tacho(%10u) speed(%10u) adc_neutral(%4u)", last_tacho, last_speedo, adc_neutral);
+//    Serial.println(debug_string);
+//  }
+//  #endif
 }
 
 void flash_erase(void) {
@@ -206,6 +279,101 @@ void flash_chip_query(void) {
   Serial.println(debug_string);
 }
 
+void flash_update_counter(void) {
+  /* Find the next record counter to write
+  */
+  unsigned long record_counter = 0;
+  for (unsigned long read_addr = 0; read_addr < flash.len_bytes - RECORD_BYTES; read_addr+=RECORD_BYTES) {
+    byte counter_data[4] = {0xff, 0xff, 0xff, 0xff};
+    flash.read_data(read_addr, counter_data, 4);
+    record_counter += (unsigned long)(counter_data[3]) << 24;
+    record_counter += (unsigned long)(counter_data[2]) << 16;
+    record_counter += (unsigned long)(counter_data[1]) << 8;
+    record_counter += (unsigned long)(counter_data[0]) << 0;
+    sprintf(debug_string, "looked at(%lu), found(%lu)", read_addr, record_counter);
+    Serial.println(debug_string);
+    if (record_counter != 0xffffffff) {
+      flash_counter = record_counter;
+      break;
+    }
+  }
+  #ifdef DEBUG_LOGGING
+  sprintf(debug_string, "found flash_counter(%lu)", flash_counter);
+  Serial.println(debug_string);
+  #endif
+}
+
 /* \flash **********************************************************************/
+
+void write_file_header(void) {
+  /* Write the file header to flash
+  */
+  byte header_data[sizeof(FILE_HEADER_MAGIC_BYTES) + sizeof(FileHeader)];
+  FileHeader header;
+  header.record_version = FILE_FORMAT_VERSION;
+  header.record_len = sizeof(DataRecord);
+  memcpy(&header_data, FILE_HEADER_MAGIC_BYTES, sizeof(FILE_HEADER_MAGIC_BYTES));
+  memcpy(&header_data + sizeof(FILE_HEADER_MAGIC_BYTES), &header, sizeof(FileHeader));
+  header.check_byte = calculate_crc((byte*)&header_data, sizeof(FileHeader) + sizeof(FILE_HEADER_MAGIC_BYTES) - 1);
+  sprintf(debug_string, "header.check_byte(0x%02x) record_len(%u)", header.check_byte, header.record_len);
+  Serial.println(debug_string);
+  header_data[sizeof(header_data)-1] = header.check_byte;
+  flash.write_data(header_data, sizeof(header_data));
+}
+
+bool read_file_header(unsigned long address, FileHeader *header) {
+  byte header_data[sizeof(FileHeader) + sizeof(FILE_HEADER_MAGIC_BYTES)];
+  flash.read_data(address, header_data, sizeof(FileHeader) + sizeof(FILE_HEADER_MAGIC_BYTES));
+  int res = memcmp(header_data, FILE_HEADER_MAGIC_BYTES, sizeof(FILE_HEADER_MAGIC_BYTES));
+  memcpy(header, header_data + 8, sizeof(FileHeader));  
+  return (0 == res);
+}
+
+void print_all_records(void) {
+  /* Print all the known records to the serial port
+  */
+//  for (unsigned long read_addr = 0; read_addr < flash.len_bytes - RECORD_BYTES; read_addr+=RECORD_BYTES) {
+//    DataRecord record;
+//    bool res = read_record(read_addr, &record);
+//    if ((0xff == record.record_version) || (0 == res))
+//      break;
+//    print_record(&record);
+//  }
+}
+
+byte calculate_crc(byte *data, unsigned long len) {
+  /* Calculate the XOR checksum of the given data
+  */
+  byte checksum = 0;
+  for (unsigned long ctr = 0; ctr < len; ctr++)
+    checksum ^= data[ctr];
+  return checksum;
+}
+
+void write_record(DataRecord *record) {
+  /* Write a record to flash - adding the magic numbers
+  */
+  byte *record_data = (byte*)record;
+  record->check_byte = calculate_crc(record_data, sizeof(DataRecord) - 1);
+  flash.write_data(record_data, sizeof(DataRecord));
+}
+
+bool read_record(unsigned long address, DataRecord *record) {
+  /* Read a record from the specified flash location
+  */
+  byte *record_data = (byte*)record;
+  flash.read_data(address, record_data, sizeof(DataRecord));
+  byte check_byte = calculate_crc(record_data, sizeof(DataRecord) - 1);
+  return (check_byte == record->check_byte);
+}
+
+void print_record(DataRecord *record) {
+  /* Print a data record to the serial port
+  */
+  sprintf(debug_string, "ctr(%lu) t(%u) s(%u) n(%u) x(0x%02x)",
+    record->ctr_record, record->ctr_tacho, record->ctr_speedo, record->adc_neutral, record->check_byte);
+  Serial.println(debug_string);
+}
+
 
 // end

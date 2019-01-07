@@ -1,17 +1,23 @@
 #include "StubFlash.h"
 
 StubFlash::StubFlash(){
+  /* Set up the stub flash memory
+  */
   len_bytes = STUB_MEMORY_LEN_BYTES;
   for (unsigned int ctr = 0; ctr < STUB_MEMORY_LEN_BYTES; ctr++)
     memory[ctr] = 0xff;
 }
 
 void StubFlash::read_data(unsigned long address, byte *return_array, unsigned int length_to_read) {
+  /* Read bytes from the memory into the given array
+  */
   for (unsigned int ctr = 0; ctr < length_to_read; ctr++)
     return_array[ctr] = memory[address + ctr];
 }
 
 void StubFlash::write_data(byte *data, unsigned int length_to_write) {
+  /* Write bytes from the given array into memory
+  */
   for (unsigned int ctr = 0; ctr < length_to_write; ctr++) {
     memory[write_address] = data[ctr];
     write_address++;
