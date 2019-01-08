@@ -60,6 +60,9 @@ struct FileHeader {  // 32 bytes total
   byte future_use[21];
   byte check_byte;
 };
+#define FILE_HEADER_MAGIC_LEN 8
+#define FILE_HEADER_LEN 24
+#define FILE_HEADER_TOTAL_LEN 32
 
 class Foo {
   public:
@@ -78,38 +81,7 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(SPEEDO_INTERRUPT_PIN), isr_speedo, RISING);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   pinMode(LED_PIN, OUTPUT);
-  
-  flash.init();
-  flash_update_counter();  // find and increase the reading counter
-
-  sprintf(debug_string, "header_len(%u) record_len(%u) magic_len(%u)", sizeof(FileHeader), sizeof(DataRecord), sizeof(FILE_HEADER_MAGIC_BYTES));
-  Serial.println(debug_string);
-
-  write_file_header();
-
-  FileHeader header;
-  bool res = read_file_header(0, &header);
-  sprintf(debug_string, "header: ok(%1u) ver(%u) reclen(%u) x(0x%02x)", res, header.record_version, header.record_len, header.check_byte);
-  Serial.println(debug_string);
-  
-//  DataRecord record_one;
-//  record_one.ctr_record = 11;
-//  record_one.ctr_tacho = 22;
-//  record_one.ctr_speedo = 33;
-//  record_one.adc_neutral = 44;
-//
-//  write_record(&record_one);
-//
-//  byte some_data[256];
-//  flash.read_data(0, some_data, 256);
-//  print_data_array_256(some_data);
-//
-//  DataRecord record_from_flash;
-//
-//  bool res = read_record(0, &record_from_flash);
-//  print_record(&record_from_flash);
-//  Serial.println(res);
-  
+  flash_init();
   interrupts();
 }
 
@@ -230,6 +202,37 @@ void isr_speedo() {
 
 /* flash *********************************************************************/
 
+void flash_init(void) {
+  /* Set up the flash filesystem
+  */
+  flash.init();
+
+  // check file header functionality
+  write_file_header();
+  FileHeader header;
+  bool header_ok = read_file_header(0, &header);
+  sprintf(debug_string, "header: ok(%1u) ver(%u) reclen(%u) x(0x%02x)", header_ok, header.record_version, header.record_len, header.check_byte);
+  Serial.println(debug_string);
+  
+//  DataRecord record_one;
+//  record_one.ctr_record = 11;
+//  record_one.ctr_tacho = 22;
+//  record_one.ctr_speedo = 33;
+//  record_one.adc_neutral = 44;
+//
+//  write_record(&record_one);
+//
+//  byte some_data[256];
+//  flash.read_data(0, some_data, 256);
+//  print_data_array_256(some_data);
+//
+//  DataRecord record_from_flash;
+//
+//  bool res = read_record(0, &record_from_flash);
+//  print_record(&record_from_flash);
+//  Serial.println(res);
+}
+
 void save_to_flash(void) {
   /* Save the latest values to the flash chip
   */
@@ -308,25 +311,30 @@ void flash_update_counter(void) {
 void write_file_header(void) {
   /* Write the file header to flash
   */
-  byte header_data[sizeof(FILE_HEADER_MAGIC_BYTES) + sizeof(FileHeader)];
+  byte header_data[FILE_HEADER_TOTAL_LEN];
+  for(byte ctr = 0; ctr < FILE_HEADER_TOTAL_LEN; ctr++)
+    header_data[ctr] = 0xff;
   FileHeader header;
   header.record_version = FILE_FORMAT_VERSION;
   header.record_len = sizeof(DataRecord);
-  memcpy(&header_data, FILE_HEADER_MAGIC_BYTES, sizeof(FILE_HEADER_MAGIC_BYTES));
-  memcpy(&header_data + sizeof(FILE_HEADER_MAGIC_BYTES), &header, sizeof(FileHeader));
-  header.check_byte = calculate_crc((byte*)&header_data, sizeof(FileHeader) + sizeof(FILE_HEADER_MAGIC_BYTES) - 1);
-  sprintf(debug_string, "header.check_byte(0x%02x) record_len(%u)", header.check_byte, header.record_len);
-  Serial.println(debug_string);
-  header_data[sizeof(header_data)-1] = header.check_byte;
+  memcpy(&header_data, FILE_HEADER_MAGIC_BYTES, FILE_HEADER_MAGIC_LEN);
+  memcpy(&header_data[FILE_HEADER_MAGIC_LEN], &header, FILE_HEADER_LEN);
+  header.check_byte = calculate_crc((byte*)&header_data, FILE_HEADER_TOTAL_LEN - 1);
+  header_data[FILE_HEADER_TOTAL_LEN - 1] = header.check_byte;
   flash.write_data(header_data, sizeof(header_data));
 }
 
 bool read_file_header(unsigned long address, FileHeader *header) {
-  byte header_data[sizeof(FileHeader) + sizeof(FILE_HEADER_MAGIC_BYTES)];
-  flash.read_data(address, header_data, sizeof(FileHeader) + sizeof(FILE_HEADER_MAGIC_BYTES));
-  int res = memcmp(header_data, FILE_HEADER_MAGIC_BYTES, sizeof(FILE_HEADER_MAGIC_BYTES));
-  memcpy(header, header_data + 8, sizeof(FileHeader));  
-  return (0 == res);
+  /* Read a file header from flash, checking the magic bytes and checksum
+  */
+  byte header_data[FILE_HEADER_TOTAL_LEN];
+  for(byte ctr = 0; ctr < FILE_HEADER_TOTAL_LEN; ctr++)
+    header_data[ctr] = 0xff;
+  flash.read_data(address, header_data, FILE_HEADER_TOTAL_LEN);
+  int res = memcmp(header_data, FILE_HEADER_MAGIC_BYTES, FILE_HEADER_MAGIC_LEN);
+  memcpy(header, header_data + FILE_HEADER_MAGIC_LEN, sizeof(FileHeader));  
+  byte calculated_checkbyte = calculate_crc((byte*)&header_data, FILE_HEADER_TOTAL_LEN - 1);
+  return (0 == res) && (header->check_byte == calculated_checkbyte);
 }
 
 void print_all_records(void) {
@@ -341,17 +349,17 @@ void print_all_records(void) {
 //  }
 }
 
-byte calculate_crc(byte *data, unsigned long len) {
+byte calculate_crc(byte *data, byte len) {
   /* Calculate the XOR checksum of the given data
   */
   byte checksum = 0;
-  for (unsigned long ctr = 0; ctr < len; ctr++)
+  for (byte ctr = 0; ctr < len; ctr++)
     checksum ^= data[ctr];
   return checksum;
 }
 
 void write_record(DataRecord *record) {
-  /* Write a record to flash - adding the magic numbers
+  /* Write a record to flash
   */
   byte *record_data = (byte*)record;
   record->check_byte = calculate_crc(record_data, sizeof(DataRecord) - 1);
@@ -374,6 +382,5 @@ void print_record(DataRecord *record) {
     record->ctr_record, record->ctr_tacho, record->ctr_speedo, record->adc_neutral, record->check_byte);
   Serial.println(debug_string);
 }
-
 
 // end
