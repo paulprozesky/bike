@@ -202,13 +202,39 @@ void isr_speedo() {
 
 /* flash *********************************************************************/
 
+unsigned long find_write_location(void) {
+  /* Find the next write-location
+  */
+  unsigned long write_location = 0;
+  for (unsigned long address = 0; address < flash.len_bytes - FILE_HEADER_TOTAL_LEN; address++) {
+    byte data[FILE_HEADER_TOTAL_LEN];
+    flash.read_data(address, data, FILE_HEADER_TOTAL_LEN);
+    byte ctr = 0;
+    while((0xff == data[ctr]) && (ctr < FILE_HEADER_TOTAL_LEN))
+      ctr++;
+    if (FILE_HEADER_TOTAL_LEN - 1 == ctr) {
+      write_location = address;
+      break;
+    }
+  }
+  sprintf(debug_string, "new write location: %lu", write_location);
+  Serial.println(debug_string);
+  return write_location;
+}
+
 void flash_init(void) {
   /* Set up the flash filesystem
   */
   flash.init();
 
+  // look for the first blank patch that's at least as long as a file header
+  find_write_location();
+
   // check file header functionality
   write_file_header();
+
+  find_write_location();
+  
   FileHeader header;
   bool header_ok = read_file_header(0, &header);
   sprintf(debug_string, "header: ok(%1u) ver(%u) reclen(%u) x(0x%02x)", header_ok, header.record_version, header.record_len, header.check_byte);
@@ -236,31 +262,17 @@ void flash_init(void) {
 void save_to_flash(void) {
   /* Save the latest values to the flash chip
   */
-  if (1 == logging_enabled) {
-    #ifdef DEBUG_LOGGING
-    Serial.println("logging_to_flash");
-    byte data_to_write[] = {
-      (byte)((flash_counter >> 24) & 0xff),
-      (byte)((flash_counter >> 16) & 0xff),
-      (byte)((flash_counter >> 8) & 0xff),
-      (byte)((flash_counter >> 0) & 0xff),
-      (byte)((last_tacho >> 8) & 0xff),
-      (byte)((last_tacho >> 0) & 0xff),
-      (byte)((last_speedo >> 8) & 0xff),
-      (byte)((last_speedo >> 0) & 0xff),
-      (byte)((adc_neutral >> 8) & 0xff),
-      (byte)((adc_neutral >> 0) & 0xff)
-    };
-    flash_counter++;
-    flash.write_data(data_to_write, RECORD_BYTES);
-    #endif
-  }
-//  #ifdef DEBUG_LOGGING
-//  else {
-//    sprintf(debug_string, "not_logging_to_flash: tacho(%10u) speed(%10u) adc_neutral(%4u)", last_tacho, last_speedo, adc_neutral);
-//    Serial.println(debug_string);
-//  }
-//  #endif
+  DataRecord record;
+  record.ctr_record = flash_counter;
+  record.ctr_tacho = last_tacho;
+  record.ctr_speedo = last_speedo;
+  record.adc_neutral = adc_neutral;
+  flash_counter++;
+  if (1 == logging_enabled)
+    write_record(&record);  // this calculates the CRC before writing
+  #ifdef DEBUG_LOGGING
+  print_record(&record);
+  #endif
 }
 
 void flash_erase(void) {
@@ -359,7 +371,7 @@ byte calculate_crc(byte *data, byte len) {
 }
 
 void write_record(DataRecord *record) {
-  /* Write a record to flash
+  /* Write a record to flash, updating the check_byte before saving
   */
   byte *record_data = (byte*)record;
   record->check_byte = calculate_crc(record_data, sizeof(DataRecord) - 1);
