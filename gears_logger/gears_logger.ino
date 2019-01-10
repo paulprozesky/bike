@@ -39,7 +39,6 @@ unsigned int adc_neutral = 0;
 
 //WinbondFlash flash(SPI_CS, 64);
 StubFlash flash;
-unsigned long flash_counter = 0;
 
 DebouncedButton button(BUTTON_PIN, DEBOUNCE_TIME);
 
@@ -47,7 +46,7 @@ char debug_string[200];
 
  /* File system */
 struct DataRecord {
-  unsigned long ctr_record;
+  unsigned long ctr_record;  // this is normally the millis() of the device
   unsigned int ctr_tacho;
   unsigned int ctr_speedo;
   unsigned int adc_neutral;
@@ -142,7 +141,7 @@ void update_data(unsigned long time_now) {
     update_data_time = time_now + UPDATE_RATE;
     update_counters();
     update_neutral();
-    save_to_flash();
+    save_to_flash(time_now);
   }
 }
 
@@ -282,15 +281,14 @@ void flash_init(void) {
 //  Serial.println(res);
 }
 
-void save_to_flash(void) {
+void save_to_flash(unsigned long time_now) {
   /* Save the latest values to the flash chip
   */
   DataRecord record;
-  record.ctr_record = flash_counter;
+  record.ctr_record = time_now;
   record.ctr_tacho = last_tacho;
   record.ctr_speedo = last_speedo;
   record.adc_neutral = adc_neutral;
-  flash_counter++;
   if (1 == logging_enabled)
     write_record(&record);  // this calculates the CRC before writing
   #ifdef DEBUG_LOGGING
@@ -315,30 +313,6 @@ void flash_chip_query(void) {
   sprintf(debug_string, "flash_info: 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x", 
     flash_info[0], flash_info[1], flash_info[2], flash_info[3], flash_info[4], flash_info[5]);
   Serial.println(debug_string);
-}
-
-void flash_update_counter(void) {
-  /* Find the next record counter to write
-  */
-  unsigned long record_counter = 0;
-  for (unsigned long read_addr = 0; read_addr < flash.len_bytes - RECORD_BYTES; read_addr+=RECORD_BYTES) {
-    byte counter_data[4] = {0xff, 0xff, 0xff, 0xff};
-    flash.read_data(read_addr, counter_data, 4);
-    record_counter += (unsigned long)(counter_data[3]) << 24;
-    record_counter += (unsigned long)(counter_data[2]) << 16;
-    record_counter += (unsigned long)(counter_data[1]) << 8;
-    record_counter += (unsigned long)(counter_data[0]) << 0;
-    sprintf(debug_string, "looked at(%lu), found(%lu)", read_addr, record_counter);
-    Serial.println(debug_string);
-    if (record_counter != 0xffffffff) {
-      flash_counter = record_counter;
-      break;
-    }
-  }
-  #ifdef DEBUG_LOGGING
-  sprintf(debug_string, "found flash_counter(%lu)", flash_counter);
-  Serial.println(debug_string);
-  #endif
 }
 
 /* \flash **********************************************************************/
