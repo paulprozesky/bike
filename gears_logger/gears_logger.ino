@@ -45,6 +45,7 @@ DebouncedButton button(BUTTON_PIN, DEBOUNCE_TIME);
 
 char debug_string[200];
 
+ /* File system */
 struct DataRecord {
   unsigned long ctr_record;
   unsigned int ctr_tacho;
@@ -60,9 +61,12 @@ struct FileHeader {  // 32 bytes total
   byte future_use[21];
   byte check_byte;
 };
-#define FILE_HEADER_MAGIC_LEN 8
-#define FILE_HEADER_LEN 24
-#define FILE_HEADER_TOTAL_LEN 32
+
+unsigned char FILE_HEADER_MAGIC_LEN = 8;
+unsigned char FILE_HEADER_LEN = 24;
+unsigned char FILE_HEADER_TOTAL_LEN = 32;
+
+/* /File system */
 
 class Foo {
   public:
@@ -202,23 +206,35 @@ void isr_speedo() {
 
 /* flash *********************************************************************/
 
-unsigned long find_write_location(void) {
-  /* Find the next write-location
+unsigned long find_header(unsigned long start_address=0) {
+  /* Find a file header, starting from the current address
   */
-  unsigned long write_location = 0;
-  for (unsigned long address = 0; address < flash.len_bytes - FILE_HEADER_TOTAL_LEN; address++) {
+  FileHeader header;
+  for (unsigned long address = start_address; address < flash.len_bytes - FILE_HEADER_TOTAL_LEN; address++) {
+    if(read_file_header(address, &header))
+      return address;
+  }
+  return 0xffffffff;
+}
+
+unsigned long find_write_location(unsigned long start_address=0) {
+  /* Find the next write-location that is at least HEADER_LEN bytes long
+  */
+  unsigned long write_location = 0xffffffff;
+  for (unsigned long address = start_address; address < flash.len_bytes - FILE_HEADER_TOTAL_LEN; address++) {
+    // read a header's worth from the flash
     byte data[FILE_HEADER_TOTAL_LEN];
     flash.read_data(address, data, FILE_HEADER_TOTAL_LEN);
-    byte ctr = 0;
-    while((0xff == data[ctr]) && (ctr < FILE_HEADER_TOTAL_LEN))
-      ctr++;
-    if (FILE_HEADER_TOTAL_LEN - 1 == ctr) {
+    // walk through it counting any byte that isn't 0xff
+    byte offset = 0;
+    while((0xff == data[offset]) && (offset < FILE_HEADER_TOTAL_LEN))
+      offset++;  // slower than a memcmp but a but more mem efficient
+    // was there a whole block of 0xff?
+    if (FILE_HEADER_TOTAL_LEN == offset) {
       write_location = address;
       break;
     }
   }
-  sprintf(debug_string, "new write location: %lu", write_location);
-  Serial.println(debug_string);
   return write_location;
 }
 
@@ -227,11 +243,18 @@ void flash_init(void) {
   */
   flash.init();
 
-  // look for the first blank patch that's at least as long as a file header
+  unsigned long header_location = find_header(0);
+  sprintf(debug_string, "found header: %lu", header_location);
+  Serial.println(debug_string);
+
   find_write_location();
 
   // check file header functionality
   write_file_header();
+
+  header_location = find_header(0);
+  sprintf(debug_string, "found header: %lu", header_location);
+  Serial.println(debug_string);
 
   find_write_location();
   
